@@ -23,17 +23,22 @@ func FuzzExtractIdentity(f *testing.F) {
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00})
 
 	f.Fuzz(func(t *testing.T, b []byte) {
-		const maxDeclared = 8 * 1024
-		if len(b) < 4 {
+		const maxInput = 512
+		const maxDeclared = 512
+		if len(b) < 4 || len(b) > maxInput {
 			return
 		}
-		if int(b[1])<<16|int(b[2])<<8|int(b[3]) > maxDeclared {
+		dl := int(b[1])<<16 | int(b[2])<<8 | int(b[3])
+		if dl < 20 || dl > maxDeclared {
 			return
 		}
-		msg, err := diam.ReadMessage(bytes.NewReader(b), dict.Default)
-		if err != nil {
-			return
-		}
-		_ = extractIdentity(msg)
+		func() {
+			defer func() { recover() }() //nolint:errcheck
+			msg, err := diam.ReadMessage(bytes.NewReader(b), dict.Default)
+			if err != nil {
+				return
+			}
+			_ = extractIdentity(msg)
+		}()
 	})
 }

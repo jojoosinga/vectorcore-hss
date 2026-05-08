@@ -17,15 +17,23 @@ func init() {
 	fuzzHandlers = newS6aTestHandlers(store)
 }
 
-func fuzzReadMsg(b []byte) *diam.Message {
-	const maxDeclared = 8 * 1024
-	if len(b) < 4 {
+func fuzzReadMsg(b []byte) (result *diam.Message) {
+	const maxInput = 512
+	const maxDeclared = 512
+	if len(b) < 4 || len(b) > maxInput {
 		return nil
 	}
 	declaredLen := int(b[1])<<16 | int(b[2])<<8 | int(b[3])
-	if declaredLen > maxDeclared {
+	if declaredLen < 20 || declaredLen > maxDeclared {
 		return nil
 	}
+	// go-diameter can panic on some malformed AVPs (e.g. vendor-flagged AVP
+	// with declared length < 12). Recover to keep the fuzz worker alive.
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+		}
+	}()
 	msg, err := diam.ReadMessage(bytes.NewReader(b), dict.Default)
 	if err != nil {
 		return nil

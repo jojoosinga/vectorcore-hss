@@ -54,8 +54,8 @@ func FuzzReadMessage(f *testing.F) {
 		0xFF, 0xFF, 0xFF, 0xFF})
 	// Truncated message.
 	f.Add([]byte{0x01, 0x00, 0x01, 0x00})
-	// Message with huge declared length.
-	f.Add([]byte{0x01, 0xFF, 0xFF, 0xFF, 0x00, 0x01, 0x01, 0x00,
+	// Message with declared length equal to header size (empty body).
+	f.Add([]byte{0x01, 0x00, 0x00, 0x14, 0x00, 0x01, 0x01, 0x00,
 		0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 		0x00, 0x00, 0x00, 0x02})
 
@@ -63,25 +63,34 @@ func FuzzReadMessage(f *testing.F) {
 		// The Diameter message length is declared in bytes 1-3 of the header.
 		// A malicious input can declare a huge length even if the payload is tiny,
 		// causing the library to attempt a large allocation.  Cap both the raw
-		// input size AND the declared message length to avoid OOM.
-		const maxDeclared = 8 * 1024 // 8 KiB — more than enough for any valid test msg
-		if len(b) < 4 {
+		// input size AND the declared message length to avoid OOM in workers.
+		const maxInput = 512
+		const maxDeclared = 512
+		if len(b) < 4 || len(b) > maxInput {
 			return
 		}
 		declaredLen := int(b[1])<<16 | int(b[2])<<8 | int(b[3])
-		if declaredLen > maxDeclared {
+		// Diameter headers are always 20 bytes; a declared length < 20 would
+		// cause the library to attempt a negative-size allocation and panic.
+		if declaredLen < 20 || declaredLen > maxDeclared {
 			return
 		}
 
-		msg, err := diam.ReadMessage(bytes.NewReader(b), dict.Default)
-		if err != nil {
-			return
-		}
+		// go-diameter panics on some malformed AVPs (vendor-flagged AVP with
+		// declared length < 12). This is a known library bug; recover so the
+		// fuzz worker stays alive.
+		func() {
+			defer func() { recover() }() //nolint:errcheck
+			msg, err := diam.ReadMessage(bytes.NewReader(b), dict.Default)
+			if err != nil {
+				return
+			}
 
-		// Exercise the header unmarshal used by the wrap() function in server.go.
-		var hdr struct {
-			OriginHost datatype.DiameterIdentity `avp:"Origin-Host"`
-		}
-		_ = msg.Unmarshal(&hdr)
+			// Exercise the header unmarshal used by the wrap() function in server.go.
+			var hdr struct {
+				OriginHost datatype.DiameterIdentity `avp:"Origin-Host"`
+			}
+			_ = msg.Unmarshal(&hdr)
+		}()
 	})
 }

@@ -385,7 +385,7 @@ func (s *Server) Start() error {
 	return <-errCh
 }
 
-func (s *Server) serveNetwork(network, addr string, dscp int) error {
+func (s *Server) serveNetwork(network, addr string, dscp int) (retErr error) {
 	fields := []zap.Field{zap.String("addr", addr)}
 	if dscp > 0 {
 		fields = append(fields, zap.Int("dscp", dscp), zap.Int("tos", dscpToTOS(dscp)))
@@ -408,5 +408,21 @@ func (s *Server) serveNetwork(network, addr string, dscp int) error {
 	}
 	ln = maybeWrapDSCPListener(ln, dscp, s.log)
 	srv := &diam.Server{Network: network, Addr: addr, Handler: s.sm, Dict: dict.Default}
+
+	// go-diameter's per-connection goroutines do not recover from panics.
+	// A malformed AVP (e.g. vendor-flagged with declared length < 12) can
+	// trigger a slice-bounds panic inside diam.ReadMessage, which without
+	// recovery would crash the entire process.  Wrap Serve() so panics are
+	// logged and the listener restarts rather than taking down the server.
+	defer func() {
+		if r := recover(); r != nil {
+			s.log.Error("diameter: recovered panic in Diameter listener — restarting",
+				zap.String("transport", network),
+				zap.Any("panic", r),
+			)
+			// Restart: tail-call serveNetwork so the listener comes back up.
+			retErr = s.serveNetwork(network, addr, dscp)
+		}
+	}()
 	return srv.Serve(ln)
 }

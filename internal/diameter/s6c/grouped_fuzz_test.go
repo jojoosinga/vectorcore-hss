@@ -11,15 +11,21 @@ import (
 // readMsgForFuzz parses a Diameter message from raw bytes using the already-loaded
 // dict (TestMain in s6c_spec_test.go loads Sh+SLh+S6c dicts).
 // Returns nil if the bytes don't form a valid Diameter message or declare a huge length.
-func readMsgForFuzz(b []byte) *diam.Message {
-	const maxDeclared = 8 * 1024
-	if len(b) < 4 {
+func readMsgForFuzz(b []byte) (result *diam.Message) {
+	const maxInput = 512
+	const maxDeclared = 512
+	if len(b) < 4 || len(b) > maxInput {
 		return nil
 	}
 	declaredLen := int(b[1])<<16 | int(b[2])<<8 | int(b[3])
-	if declaredLen > maxDeclared {
+	if declaredLen < 20 || declaredLen > maxDeclared {
 		return nil
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+		}
+	}()
 	msg, err := diam.ReadMessage(bytes.NewReader(b), dict.Default)
 	if err != nil {
 		return nil

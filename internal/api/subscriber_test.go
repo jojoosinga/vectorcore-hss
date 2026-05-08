@@ -2,18 +2,29 @@ package api
 
 import (
 	"context"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/svinson1121/vectorcore-hss/internal/models"
 )
 
 type idrRecorder struct {
+	mu    sync.Mutex
 	imsis []string
 }
 
 func (r *idrRecorder) SendIDRByIMSI(_ context.Context, imsi string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.imsis = append(r.imsis, imsi)
 	return nil
+}
+
+func (r *idrRecorder) get() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.imsis...)
 }
 
 func TestUpdateSubscriberSendsIDROnAccessRestrictionChange(t *testing.T) {
@@ -42,8 +53,16 @@ func TestUpdateSubscriberSendsIDROnAccessRestrictionChange(t *testing.T) {
 		t.Fatalf("update subscriber: %v", err)
 	}
 
-	if len(idr.imsis) != 1 || idr.imsis[0] != sub.IMSI {
-		t.Fatalf("IDR calls = %#v, want [%q]", idr.imsis, sub.IMSI)
+	// The IDR fires in a goroutine; poll briefly to let it run.
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for {
+		if got := idr.get(); len(got) == 1 && got[0] == sub.IMSI {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("IDR calls = %#v, want [%q]", idr.get(), sub.IMSI)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -71,8 +90,8 @@ func TestUpdateSubscriberSkipsIDRWhenAccessRestrictionUnchanged(t *testing.T) {
 		t.Fatalf("update subscriber: %v", err)
 	}
 
-	if len(idr.imsis) != 0 {
-		t.Fatalf("unexpected IDR calls: %#v", idr.imsis)
+	if got := idr.get(); len(got) != 0 {
+		t.Fatalf("unexpected IDR calls: %#v", got)
 	}
 }
 
@@ -104,7 +123,7 @@ func TestUpdateSubscriberSkipsIDRWhenDisabled(t *testing.T) {
 		t.Fatalf("update subscriber: %v", err)
 	}
 
-	if len(idr.imsis) != 0 {
-		t.Fatalf("unexpected IDR calls: %#v", idr.imsis)
+	if got := idr.get(); len(got) != 0 {
+		t.Fatalf("unexpected IDR calls: %#v", got)
 	}
 }

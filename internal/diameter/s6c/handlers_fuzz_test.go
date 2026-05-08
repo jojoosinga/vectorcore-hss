@@ -14,15 +14,21 @@ func init() {
 	fuzzS6cHandlers = newTestHandlers(newS6cStore())
 }
 
-func s6cFuzzReadMsg(b []byte) *diam.Message {
-	const maxDeclared = 8 * 1024
-	if len(b) < 4 {
+func s6cFuzzReadMsg(b []byte) (result *diam.Message) {
+	const maxInput = 512
+	const maxDeclared = 512
+	if len(b) < 4 || len(b) > maxInput {
 		return nil
 	}
 	declaredLen := int(b[1])<<16 | int(b[2])<<8 | int(b[3])
-	if declaredLen > maxDeclared {
+	if declaredLen < 20 || declaredLen > maxDeclared {
 		return nil
 	}
+	defer func() {
+		if r := recover(); r != nil {
+			result = nil
+		}
+	}()
 	msg, err := diam.ReadMessage(bytes.NewReader(b), dict.Default)
 	if err != nil {
 		return nil

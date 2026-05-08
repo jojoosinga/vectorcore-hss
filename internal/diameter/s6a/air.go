@@ -26,7 +26,10 @@ func (h *Handlers) AIR(conn diam.Conn, msg *diam.Message) (*diam.Message, error)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	peer := conn.RemoteAddr().String()
+	peer := ""
+	if conn != nil {
+		peer = conn.RemoteAddr().String()
+	}
 	visitedPLMN := []byte(air.VisitedPLMNID)
 
 	sub, err := h.store.GetSubscriberByIMSI(ctx, imsi)
