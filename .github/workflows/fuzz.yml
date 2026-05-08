@@ -1,0 +1,192 @@
+name: Fuzz
+
+on:
+  # Run every night at 02:00 UTC so results are ready in the morning.
+  schedule:
+    - cron: "0 2 * * *"
+
+  # Allow manual runs with an optional custom fuzz duration.
+  workflow_dispatch:
+    inputs:
+      fuzztime:
+        description: "Fuzz duration per target (e.g. 30s, 60s, 2m)"
+        default: "60s"
+        required: false
+
+# Fall back to 60 s when triggered by schedule (no inputs).
+env:
+  FUZZTIME: ${{ inputs.fuzztime || '60s' }}
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────────
+  # One job per package group. Jobs run in parallel; targets within a job are
+  # sequential (Go fuzzing is CPU/memory-intensive — one target at a time).
+  # ─────────────────────────────────────────────────────────────────────────────
+  fuzz:
+    name: "Fuzz ${{ matrix.name }}"
+    runs-on: ubuntu-latest
+    continue-on-error: false   # fail fast so corpus entries are uploaded
+
+    strategy:
+      fail-fast: false          # run all packages even if one finds a bug
+      matrix:
+        include:
+          # ── Diameter wire-format parser ──────────────────────────────────
+          - name: diameter
+            pkg: ./internal/diameter
+            targets: FuzzReadMessage
+            # single worker to avoid OOM (library allocates per declared length)
+            extra: -parallel=1
+
+          # ── S6a helpers + handlers ───────────────────────────────────────
+          - name: diameter-s6a
+            pkg: ./internal/diameter/s6a
+            targets: >-
+              FuzzDecodeTBCDString
+              FuzzEncodeMSISDN
+              FuzzParseULI
+              FuzzAIR
+              FuzzULR
+              FuzzPUR
+              FuzzNOR
+
+          # ── S6c helpers + handlers ───────────────────────────────────────
+          - name: diameter-s6c
+            pkg: ./internal/diameter/s6c
+            targets: >-
+              FuzzEncodeMSISDNBytes
+              FuzzDecodeMSISDN
+              FuzzDecodeSMSMICorrelationID
+              FuzzParseDeliveryOutcome
+              FuzzParseUserIdentifier
+              FuzzExtractSMSMICorrelationID
+              FuzzSRISR
+              FuzzRDSMR
+
+          # ── S13 ECR handler ──────────────────────────────────────────────
+          - name: diameter-s13
+            pkg: ./internal/diameter/s13
+            targets: FuzzECR
+
+          # ── Sh helpers ───────────────────────────────────────────────────
+          - name: diameter-sh
+            pkg: ./internal/diameter/sh
+            targets: >-
+              FuzzDecodeTBCD
+              FuzzDecodeMSISDN
+              FuzzNormalizePublicIdentity
+              FuzzExtractIdentity
+
+          # ── Gx TFT + APN helpers ─────────────────────────────────────────
+          - name: diameter-gx
+            pkg: ./internal/diameter/gx
+            targets: >-
+              FuzzApplyTFTHandling
+              FuzzShouldRewritePermitInTFT
+              FuzzSplitTrim
+              FuzzStripAPNFQDN
+
+          # ── Cx helpers ───────────────────────────────────────────────────
+          - name: diameter-cx
+            pkg: ./internal/diameter/cx
+            targets: >-
+              FuzzEncodePLMN
+              FuzzNormalizeIMSI
+              FuzzNormalizeMSISDN
+
+          # ── GSUP / HLR ───────────────────────────────────────────────────
+          - name: gsup
+            pkg: ./internal/gsup
+            targets: >-
+              FuzzDecode
+              FuzzParseIDResp
+              FuzzEncodeDecodeIMSIRoundTrip
+              FuzzGSUPHandleMessage
+
+          # ── Config YAML parser ───────────────────────────────────────────
+          - name: config
+            pkg: ./internal/config
+            targets: FuzzLoadFromBytes
+
+          # ── IMS XML rendering ────────────────────────────────────────────
+          - name: ims
+            pkg: ./internal/ims
+            targets: >-
+              FuzzEscapeXML
+              FuzzNormalizeMNC
+              FuzzBuildShUserData
+              FuzzBuildCxUserData
+
+          # ── Milenage / AKA crypto ────────────────────────────────────────
+          - name: crypto
+            pkg: ./internal/crypto
+            targets: >-
+              FuzzResyncCustom
+              FuzzGenerateEUTRANVectorCustom
+              FuzzGenerateEAPAKAVectorCustom
+              FuzzResyncSQNFull
+              FuzzResyncSQNFullBadKeys
+
+          # ── OAM REST API ─────────────────────────────────────────────────
+          - name: api
+            pkg: ./internal/api
+            targets: >-
+              FuzzValidateIFCProfileXMLFragment
+              FuzzPostSubscriber
+              FuzzPostAUC
+              FuzzPostAPN
+              FuzzPostEIR
+              FuzzGetSubscriberByIMSI
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install C toolchain
+        run: sudo apt-get install -y --no-install-recommends gcc libc6-dev
+
+      # Restore existing corpus so the fuzzer builds on prior coverage.
+      - name: Restore fuzz corpus cache
+        uses: actions/cache/restore@v4
+        with:
+          path: "**/testdata/fuzz"
+          key: fuzz-corpus-${{ matrix.name }}-${{ github.sha }}
+          restore-keys: |
+            fuzz-corpus-${{ matrix.name }}-
+
+      - name: Fuzz ${{ matrix.name }}
+        run: |
+          set -euo pipefail
+          FAILED=0
+          for target in ${{ matrix.targets }}; do
+            echo "::group::$target"
+            go test \
+              -fuzz="^${target}$" \
+              -fuzztime="${FUZZTIME}" \
+              ${{ matrix.extra || '' }} \
+              "${{ matrix.pkg }}" || FAILED=1
+            echo "::endgroup::"
+          done
+          exit $FAILED
+
+      # Upload any new corpus entries (including failing inputs) as artifacts
+      # so they can be retrieved and added to the repo's seed corpus.
+      - name: Upload corpus artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-corpus-${{ matrix.name }}-${{ github.run_id }}
+          path: "**/testdata/fuzz"
+          if-no-files-found: ignore
+
+      # Persist corpus for the next nightly run.
+      - name: Save fuzz corpus cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: "**/testdata/fuzz"
+          key: fuzz-corpus-${{ matrix.name }}-${{ github.sha }}
