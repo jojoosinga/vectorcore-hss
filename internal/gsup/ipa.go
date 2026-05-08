@@ -155,7 +155,7 @@ func parseIDResp(payload []byte) string {
 		tagLen := int(payload[i])
 		tag := payload[i+1]
 		i += 2
-		if i+tagLen-1 > len(payload) {
+		if tagLen < 1 || i+tagLen-1 > len(payload) {
 			break
 		}
 		val := payload[i : i+tagLen-1]

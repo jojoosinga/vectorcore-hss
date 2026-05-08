@@ -107,6 +107,9 @@ func parseULI(b []byte) (ULIFields, bool) {
 //	Octet 2: MNC digit 3 (high) | MCC digit 3 (low)
 //	Octet 3: MNC digit 2 (high) | MNC digit 1 (low)
 func decodePLMN(p []byte) (mcc, mnc string) {
+	if len(p) < 3 {
+		return "", ""
+	}
 	mcc1 := p[0] & 0x0F
 	mcc2 := (p[0] >> 4) & 0x0F
 	mcc3 := p[1] & 0x0F

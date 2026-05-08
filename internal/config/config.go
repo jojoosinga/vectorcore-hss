@@ -240,11 +240,8 @@ type GeoredConfig struct {
 	Peers                 []GeoredPeer `yaml:"peers"`
 }
 
-func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("config: read %s: %w", path, err)
-	}
+// LoadFromBytes parses and validates a YAML config from the given bytes.
+func LoadFromBytes(data []byte) (*Config, error) {
 	cfg := &Config{
 		HSS:      HSSConfig{BindAddress: "0.0.0.0", BindPort: 3868, DWRInterval: 30},
 		Database: DatabaseConfig{Port: 5432, MaxOpenConns: 30, MaxIdleConns: 10, ConnMaxLifetime: 300},
@@ -275,6 +272,14 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("config: database.db_type is required")
 	}
 	return cfg, nil
+}
+
+func Load(path string) (*Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("config: read %s: %w", path, err)
+	}
+	return LoadFromBytes(data)
 }
 
 func normalizePCRFConfig(cfg *PCRFConfig) {

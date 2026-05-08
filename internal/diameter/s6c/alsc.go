@@ -175,7 +175,12 @@ func (h *Handlers) ALA(conn diam.Conn, msg *diam.Message) {
 		h.log.Warn("s6c: ALA missing Session-Id")
 		return
 	}
-	sid := string(sidAVP.Data.(datatype.UTF8String))
+	sidVal, ok := sidAVP.Data.(datatype.UTF8String)
+	if !ok {
+		h.log.Warn("s6c: ALA Session-Id has unexpected type")
+		return
+	}
+	sid := string(sidVal)
 
 	entry, ok := h.pendingALR.LoadAndDelete(sid)
 	if !ok {
@@ -185,7 +190,11 @@ func (h *Handlers) ALA(conn diam.Conn, msg *diam.Message) {
 			zap.String("origin_host", string(ala.OriginHost)))
 		return
 	}
-	pending := entry.(pendingALREntry)
+	pending, ok := entry.(pendingALREntry)
+	if !ok {
+		h.log.Warn("s6c: ALA pending entry has unexpected type", zap.String("session_id", sid))
+		return
+	}
 
 	resultCode, ok := alaAnswerResultCode(msg)
 	if !ok {

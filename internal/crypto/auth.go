@@ -39,13 +39,22 @@ func GenerateEUTRANVectors(auc *models.AUC, profile *models.AlgorithmProfile, pl
 	if err != nil {
 		return nil, fmt.Errorf("decode Ki: %w", err)
 	}
+	if len(ki) != 16 {
+		return nil, fmt.Errorf("Ki must decode to 16 bytes, got %d", len(ki))
+	}
 	opc, err := hex.DecodeString(auc.OPc)
 	if err != nil {
 		return nil, fmt.Errorf("decode OPc: %w", err)
 	}
+	if len(opc) != 16 {
+		return nil, fmt.Errorf("OPc must decode to 16 bytes, got %d", len(opc))
+	}
 	amf, err := hex.DecodeString(auc.AMF)
 	if err != nil {
 		return nil, fmt.Errorf("decode AMF: %w", err)
+	}
+	if len(amf) != 2 {
+		return nil, fmt.Errorf("AMF must decode to 2 bytes, got %d", len(amf))
 	}
 	if len(plmn) != 3 {
 		return nil, fmt.Errorf("PLMN must be 3 bytes, got %d", len(plmn))
@@ -109,13 +118,22 @@ func GenerateEAPAKAVector(auc *models.AUC, profile *models.AlgorithmProfile, sto
 	if err != nil {
 		return nil, fmt.Errorf("decode Ki: %w", err)
 	}
+	if len(ki) != 16 {
+		return nil, fmt.Errorf("Ki must decode to 16 bytes, got %d", len(ki))
+	}
 	opc, err := hex.DecodeString(auc.OPc)
 	if err != nil {
 		return nil, fmt.Errorf("decode OPc: %w", err)
 	}
+	if len(opc) != 16 {
+		return nil, fmt.Errorf("OPc must decode to 16 bytes, got %d", len(opc))
+	}
 	amf, err := hex.DecodeString(auc.AMF)
 	if err != nil {
 		return nil, fmt.Errorf("decode AMF: %w", err)
+	}
+	if len(amf) != 2 {
+		return nil, fmt.Errorf("AMF must decode to 2 bytes, got %d", len(amf))
 	}
 
 	before, err := store.AtomicGetAndIncrementSQN(ctx, auc.AUCID, 32)
@@ -167,9 +185,15 @@ func ResyncSQNFull(auc *models.AUC, profile *models.AlgorithmProfile, resyncInfo
 	if err != nil {
 		return 0, err
 	}
+	if len(ki) != 16 {
+		return 0, fmt.Errorf("Ki must decode to 16 bytes, got %d", len(ki))
+	}
 	opc, err := hex.DecodeString(auc.OPc)
 	if err != nil {
 		return 0, err
+	}
+	if len(opc) != 16 {
+		return 0, fmt.Errorf("OPc must decode to 16 bytes, got %d", len(opc))
 	}
 
 	if profile != nil {

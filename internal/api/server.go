@@ -149,7 +149,9 @@ func (s *Server) WithCache(c CacheInvalidator) *Server {
 	return s
 }
 
-func (s *Server) Start() error {
+// Handler builds and returns the full HTTP handler tree (chi router + Huma +
+// all routes) without starting a listener. Useful for httptest in tests.
+func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.Recoverer)
 	r.Use(func(next http.Handler) http.Handler {
@@ -183,8 +185,12 @@ func (s *Server) Start() error {
 		s.registerRoutes(api)
 	})
 
+	return r
+}
+
+func (s *Server) Start() error {
 	addr := net.JoinHostPort(s.cfg.BindAddress, strconv.Itoa(s.cfg.BindPort))
-	srv := &http.Server{Addr: addr, Handler: s.auth(r)}
+	srv := &http.Server{Addr: addr, Handler: s.auth(s.Handler())}
 
 	if s.cfg.TLSCertFile != "" && s.cfg.TLSKeyFile != "" {
 		s.log.Info("api: TLS listening", zap.String("addr", addr))

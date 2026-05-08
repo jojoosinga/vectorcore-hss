@@ -1,0 +1,8 @@
+# Local development
+bin/config.yaml
+bin/hss
+db
+log
+
+# Web
+node_modules/
